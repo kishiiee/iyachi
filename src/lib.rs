@@ -4,11 +4,11 @@
 extern crate napi_derive;
 
 use napi::bindgen_prelude::*;
-use image::{DynamicImage, GenericImageView, RgbaImage, ImageOutputFormat};
+use image::{DynamicImage, RgbaImage, ImageFormat};
 use imageproc::drawing::draw_text_mut;
 use rusttype::{Font, Scale};
 use reqwest;
-use tokio;
+use std::io::Cursor;
 
 #[napi(object)]
 pub struct User {
@@ -40,7 +40,9 @@ pub async fn create_ship_image(input: ShipImageInput) -> Result<Buffer> {
     )?;
 
     let mut buffer = Vec::new();
-    composed.write_to(&mut buffer, ImageOutputFormat::Png)
+    let mut cursor = Cursor::new(&mut buffer);
+    composed
+        .write_to(&mut cursor, ImageFormat::Png)
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(Buffer::from(buffer))
@@ -51,7 +53,8 @@ async fn fetch_image(url: &str) -> Result<DynamicImage> {
         .await
         .map_err(|e| Error::from_reason(format!("Failed to fetch {}: {}", url, e)))?;
 
-    let bytes = resp.bytes()
+    let bytes = resp
+        .bytes()
         .await
         .map_err(|e| Error::from_reason(format!("Failed to read bytes: {}", e)))?;
 
@@ -69,27 +72,45 @@ fn compose_image(
     name2: &str,
     percentage: u8,
 ) -> Result<RgbaImage> {
-    let mut base = bg.resize_exact(600, 400, image::imageops::FilterType::Lanczos3).to_rgba8();
+    let mut base = bg
+        .resize_exact(600, 400, image::imageops::FilterType::Lanczos3)
+        .to_rgba8();
 
     let avatar_size = 128;
     let u1 = user1.resize_exact(avatar_size, avatar_size, image::imageops::FilterType::Lanczos3);
     let u2 = user2.resize_exact(avatar_size, avatar_size, image::imageops::FilterType::Lanczos3);
 
     image::imageops::overlay(&mut base, &u1, 80, 100);
-    image::imageops::overlay(&mut base, &u2, 600 - avatar_size - 80, 100);
+    image::imageops::overlay(&mut base, &u2, (600 - avatar_size - 80).into(), 100);
 
     // Draw names
-    let font_data = include_bytes!("../assets/Roboto-Regular.ttf"); // You must include this font file
+    let font_data = include_bytes!("../assets/Roboto-Regular.ttf");
     let font = Font::try_from_bytes(font_data as &[u8])
         .ok_or_else(|| Error::from_reason("Failed to load font"))?;
     let scale = Scale::uniform(32.0);
 
     draw_text_mut(&mut base, image::Rgba([255, 255, 255, 255]), 80, 240, scale, &font, name1);
-    draw_text_mut(&mut base, image::Rgba([255, 255, 255, 255]), (600 - avatar_size - 80) as i32, 240, scale, &font, name2);
+    draw_text_mut(
+        &mut base,
+        image::Rgba([255, 255, 255, 255]),
+        (600 - avatar_size - 80) as i32,
+        240,
+        scale,
+        &font,
+        name2,
+    );
 
     // Draw percentage text in the middle
     let percentage_text = format!("❤️ {}%", percentage);
-    draw_text_mut(&mut base, image::Rgba([255, 0, 100, 255]), 250, 180, Scale::uniform(40.0), &font, &percentage_text);
+    draw_text_mut(
+        &mut base,
+        image::Rgba([255, 0, 100, 255]),
+        250,
+        180,
+        Scale::uniform(40.0),
+        &font,
+        &percentage_text,
+    );
 
     Ok(base)
 }
