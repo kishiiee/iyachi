@@ -85,7 +85,7 @@ fn compose_image(
     let scale = Scale::uniform(32.0);
 
     draw_text_mut(&mut base, image::Rgba([255, 255, 255, 255]), 80, 240, scale, &font, name1);
-    draw_text_mut(&mut base, image::Rgba([255, 255, 255, 255]), 600 - avatar_size - 80, 240, scale, &font, name2);
+    draw_text_mut(&mut base, image::Rgba([255, 255, 255, 255]), (600 - avatar_size - 80) as i32, 240, scale, &font, name2);
 
     // Draw percentage text in the middle
     let percentage_text = format!("❤️ {}%", percentage);
