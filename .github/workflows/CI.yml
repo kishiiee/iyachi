@@ -6,7 +6,7 @@ env:
 permissions:
   contents: write
   id-token: write
-'on':
+on:
   push:
     branches:
       - main
@@ -22,6 +22,7 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -33,9 +34,11 @@ jobs:
             build: |
               yarn build --target x86_64-apple-darwin
               strip -x *.node
+
           - host: windows-latest
-            build: yarn build
             target: x86_64-pc-windows-msvc
+            build: yarn build
+
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
@@ -43,10 +46,16 @@ jobs:
               set -e &&
               yarn build --target x86_64-unknown-linux-gnu &&
               strip *.node
+
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: set -e && yarn build && strip *.node
+            build: |-
+              set -e &&
+              apk add --no-cache perl &&
+              yarn build &&
+              strip *.node
+
           - host: macos-latest
             target: aarch64-apple-darwin
             build: |
@@ -57,6 +66,7 @@ jobs:
               export CFLAGS="-isysroot $SYSROOT -isystem $SYSROOT";
               yarn build --target aarch64-apple-darwin
               strip -x *.node
+
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
@@ -65,6 +75,7 @@ jobs:
               rustup target add aarch64-unknown-linux-gnu &&
               yarn build --target aarch64-unknown-linux-gnu &&
               aarch64-unknown-linux-gnu-strip *.node
+
           - host: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             setup: |
@@ -73,43 +84,53 @@ jobs:
             build: |
               yarn build --target armv7-unknown-linux-gnueabihf
               arm-linux-gnueabihf-strip *.node
+
           - host: ubuntu-latest
             target: aarch64-linux-android
             build: |
               yarn build --target aarch64-linux-android
               ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
+
           - host: ubuntu-latest
             target: armv7-linux-androideabi
             build: |
               yarn build --target armv7-linux-androideabi
               ${ANDROID_NDK_LATEST_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip *.node
+
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
             build: |-
               set -e &&
+              apk add --no-cache perl &&
               rustup target add aarch64-unknown-linux-musl &&
               yarn build --target aarch64-unknown-linux-musl &&
               /aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip *.node
+
           - host: windows-latest
             target: aarch64-pc-windows-msvc
             build: yarn build --target aarch64-pc-windows-msvc
+
     name: ${{ matrix.settings.target }} - node@18
     runs-on: ${{ matrix.settings.host }}
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup node
         uses: actions/setup-node@v4
         if: ${{ !matrix.settings.docker }}
         with:
           node-version: 18
           cache: yarn
+
       - name: Install
         uses: dtolnay/rust-toolchain@nightly
         if: ${{ !matrix.settings.docker }}
         with:
           toolchain: nightly
           targets: ${{ matrix.settings.target }}
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -120,33 +141,46 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+
       - uses: goto-bus-stop/setup-zig@v2
         if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
         with:
           version: 0.11.0
+
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
         shell: bash
+
       - name: Install dependencies
         run: yarn install
+
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
         with:
           image: ${{ matrix.settings.docker }}
-          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
+          options: >
+            --user 0:0
+            -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db
+            -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache
+            -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index
+            -v ${{ github.workspace }}:/build
+            -w /build
           run: ${{ matrix.settings.build }}
+
       - name: Build
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
         shell: bash
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
           path: ${{ env.APP_NAME }}.*.node
           if-no-files-found: error
+
   test-macOS-windows-binding:
     name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
     needs:
@@ -184,6 +218,7 @@ jobs:
         shell: bash
       - name: Test bindings
         run: yarn test
+
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs:
@@ -214,6 +249,7 @@ jobs:
         shell: bash
       - name: Test bindings
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
+
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
@@ -246,6 +282,7 @@ jobs:
         shell: bash
       - name: Test bindings
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
+
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
     needs:
@@ -286,6 +323,7 @@ jobs:
             set -e
             yarn test
             ls -la
+
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@lts
     needs:
@@ -319,6 +357,7 @@ jobs:
           run: |
             set -e
             yarn test
+
   test-linux-arm-gnueabihf-binding:
     name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
     needs:
@@ -358,6 +397,7 @@ jobs:
             set -e
             yarn test
             ls -la
+
   publish:
     name: Publish
     runs-on: ubuntu-latest
